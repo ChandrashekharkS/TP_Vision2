@@ -23,7 +23,7 @@ def load_models():
     # Load sentiment analysis pipeline
     sentiment_analyzer = pipeline(
         "sentiment-analysis",
-        model="bhadresh-savani/bert-base-uncased-emotion"
+        model="distilbert-base-uncased-finetuned-sst-2-english"
     )
     
     return sentence_transformer, kmeans, topic_labels, sentiment_analyzer
