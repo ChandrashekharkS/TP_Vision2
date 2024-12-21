@@ -4,31 +4,23 @@ import json
 import pickle
 from sentence_transformers import SentenceTransformer
 from transformers import pipeline
-import os
 
-# Load pre-trained models
-@st.cache_resource
-def load_models():
-    # Load the SentenceTransformer model
-    sentence_transformer = SentenceTransformer("sentence_transformer_model")
 
-    # Load the KMeans topic model
-    with open("topic_model.pkl", "rb") as f:
-        kmeans = pickle.load(f)
+with open('topic_model.pkl', 'rb') as f:
+    kmeans = pickle.load(f)
 
-    # Load topic labels
-    with open("topic_labels.pkl", "rb") as f:
-        topic_labels = pickle.load(f)
+with open('topic_labels.pkl', 'rb') as f:
+    topic_labels = pickle.load(f)
 
-    # Load sentiment analysis pipeline
-    sentiment_analyzer = pipeline(
-        "sentiment-analysis",
-        model="distilbert-base-uncased-finetuned-sst-2-english"
-    )
-    
-    return sentence_transformer, kmeans, topic_labels, sentiment_analyzer
+with open('sentence_transformer.pkl', 'rb') as f:
+    sentence_transformer = pickle.load(f)
 
-# Function to extract human messages from JSON structure
+sentiment_analyzer = pipeline(
+    "sentiment-analysis",
+    model="distilbert-base-uncased-finetuned-sst-2-english",
+)
+
+
 def extract_human_messages(conversations):
     messages = []
     for conv in conversations:
@@ -36,35 +28,38 @@ def extract_human_messages(conversations):
             messages.append(conv['value'])
     return " ".join(messages)
 
-# Sentiment analysis function
-def analyze_sentiment(sentiment_analyzer, message, max_length=512):
-    truncated_message = message[:max_length]
-    sentiment_result = sentiment_analyzer(truncated_message)[0]
+
+def truncate_message(message, max_length=512):
+    return message[:max_length]
+
+def analyze_sentiment(message):
+    sentiment_result = sentiment_analyzer(message[:512])[0]
     return sentiment_result['label']
 
-# Main data processing function
-def process_data(file, sentence_transformer, kmeans, topic_labels, sentiment_analyzer):
-    # Load JSON file
+
+def process_data(file):
+    
     data = json.load(file)
     df = pd.DataFrame(data)
 
-    # Extract human messages
+    
     df['human_messages'] = df['conversations'].apply(extract_human_messages)
+    df['human_messages'] = df['human_messages'].apply(lambda x: truncate_message(x, 512))
 
-    # Generate embeddings for clustering
+    
     embeddings = sentence_transformer.encode(df['human_messages'].tolist())
 
-    # Predict topics
+    
     df['topic'] = kmeans.predict(embeddings)
     df['topic_label'] = df['topic'].map(topic_labels)
 
-    # Handle edge case: assign "Misc" if topic label is missing
+    
     df['topic_label'].fillna("Misc", inplace=True)
 
-    # Analyze sentiments
-    df['sentiment'] = df['human_messages'].apply(lambda x: analyze_sentiment(sentiment_analyzer, x))
+    
+    df['sentiment'] = df['human_messages'].apply(analyze_sentiment)
 
-    # Aggregate counts for display
+    
     topic_counts = df['topic_label'].value_counts().reset_index()
     topic_counts.columns = ['Topic', 'Count']
 
@@ -73,7 +68,7 @@ def process_data(file, sentence_transformer, kmeans, topic_labels, sentiment_ana
 
     return df, topic_counts, sentiment_counts
 
-# Function to display aggregated counts
+
 def display_counts(topic_counts, sentiment_counts):
     st.header("Counts")
     st.subheader("Table 1: Topic Counts")
@@ -82,7 +77,7 @@ def display_counts(topic_counts, sentiment_counts):
     st.subheader("Table 2: Sentiment Counts")
     st.table(sentiment_counts)
 
-# Function to display session details with pagination
+
 def display_sessions(df):
     st.header("Sessions")
     st.subheader("Assigned Topics and Sentiments")
@@ -97,25 +92,14 @@ def display_sessions(df):
     paginated_df = df.iloc[start_idx:end_idx]
     st.table(paginated_df[['human_messages', 'topic_label', 'sentiment']])
 
-# Streamlit App
+
 st.title("Conversation Topic and Sentiment Analysis")
 
-# Load models
-sentence_transformer, kmeans, topic_labels, sentiment_analyzer = load_models()
-
-# File uploader
 uploaded_file = st.file_uploader("Upload a JSON file containing conversations", type="json")
 
 if uploaded_file is not None:
-    df, topic_counts, sentiment_counts = process_data(
-        uploaded_file, 
-        sentence_transformer, 
-        kmeans, 
-        topic_labels, 
-        sentiment_analyzer
-    )
+    df, topic_counts, sentiment_counts = process_data(uploaded_file)
 
-    # Navigation sidebar
     page = st.sidebar.selectbox("Select Page", ["Counts", "Sessions"])
 
     if page == "Counts":
